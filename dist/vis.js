@@ -5,7 +5,7 @@
  * A dynamic, browser-based visualization library.
  *
  * @version 4.21.0-SNAPSHOT
- * @date    2018-05-07
+ * @date    2018-07-13
  *
  * @license
  * Copyright (C) 2011-2017 Almende B.V, http://almende.com
@@ -26499,6 +26499,10 @@ var Label = function () {
           }
           for (var j = 0; j < line.blocks.length; j++) {
             var block = line.blocks[j];
+
+            // short circuit for empty strings
+            if (block.text !== null && block.text.trim().length === 0) continue;
+
             ctx.font = block.font;
 
             var _getColor2 = this._getColor(block.color, viewFontSize, block.strokeColor),
@@ -28708,6 +28712,8 @@ var allOptions = {
     dragView: { boolean: bool },
     hideEdgesOnDrag: { boolean: bool },
     hideNodesOnDrag: { boolean: bool },
+    delayEdgeDrawing: { boolean: bool },
+    delayEdgeDrawingTime: { number: number },
     hover: { boolean: bool },
     keyboard: {
       enabled: { boolean: bool },
@@ -29115,6 +29121,8 @@ var configureOptions = {
     dragView: true,
     hideEdgesOnDrag: false,
     hideNodesOnDrag: false,
+    delayEdgeDrawing: false,
+    delayEdgeDrawingTime: 300,
     hover: false,
     keyboard: {
       enabled: false,
@@ -52730,9 +52738,16 @@ var CanvasRenderer = function () {
     this.options = {};
     this.defaultOptions = {
       hideEdgesOnDrag: false,
-      hideNodesOnDrag: false
+      hideNodesOnDrag: false,
+      delayEdgeDrawing: false,
+      delayEdgeDrawingTime: 300
     };
     util.extend(this.options, this.defaultOptions);
+
+    this.delayEdgeTimeout = {
+      id: null,
+      timestamp: null
+    };
 
     this._determineBrowserMethod();
     this.bindEventListeners();
@@ -52801,7 +52816,7 @@ var CanvasRenderer = function () {
     key: "setOptions",
     value: function setOptions(options) {
       if (options !== undefined) {
-        var fields = ['hideEdgesOnDrag', 'hideNodesOnDrag'];
+        var fields = ['hideEdgesOnDrag', 'hideNodesOnDrag', 'delayEdgeDrawing', 'delayEdgeDrawingTime'];
         util.selectiveDeepExtend(fields, this.options, options);
       }
     }
@@ -52932,6 +52947,7 @@ var CanvasRenderer = function () {
     key: "_redraw",
     value: function _redraw() {
       var hidden = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
+      var forceDrawEdges = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
 
       if (this.allowRedraw === true) {
         this.body.emitter.emit("initRedraw");
@@ -52966,9 +52982,26 @@ var CanvasRenderer = function () {
         this.body.emitter.emit("beforeDrawing", ctx);
         ctx.closePath();
 
-        if (hidden === false) {
-          if (this.dragging === false || this.dragging === true && this.options.hideEdgesOnDrag === false) {
-            this._drawEdges(ctx);
+        if (this.options.delayEdgeDrawing === false || forceDrawEdges) {
+          if (hidden === false) {
+            if (this.dragging === false || this.dragging === true && this.options.hideEdgesOnDrag === false) {
+              this._drawEdges(ctx);
+            }
+          }
+        } else {
+          var self = this;
+          var now = new Date().getTime();
+
+          if (this.delayEdgeTimeout.id == null || now - this.delayEdgeTimeout.timestamp < 300) {
+            clearTimeout(this.delayEdgeTimeout.id);
+
+            this.delayEdgeTimeout = {
+              id: setTimeout(function () {
+                self._redraw(false, true);
+                self.delayEdgeTimeout.id = null;
+              }, self.options.delayEdgeDrawingTime),
+              timestamp: now
+            };
           }
         }
 
@@ -53049,6 +53082,10 @@ var CanvasRenderer = function () {
       // draw unselected nodes;
       for (var i = 0; i < nodeIndices.length; i++) {
         node = nodes[nodeIndices[i]];
+
+        // this may happen because of async redrawings
+        if (node === null || typeof node === 'undefined') continue;
+
         // set selected nodes aside
         if (node.isSelected()) {
           selected.push(nodeIndices[i]);
@@ -53085,7 +53122,7 @@ var CanvasRenderer = function () {
 
       for (var i = 0; i < edgeIndices.length; i++) {
         edge = edges[edgeIndices[i]];
-        if (edge.connected === true) {
+        if (edge !== null && typeof edge !== 'undefined' && edge.connected === true) {
           edge.draw(ctx);
         }
       }
@@ -54780,7 +54817,7 @@ var InteractionHandler = function () {
         var overlappingNodes = [];
         for (var i = 0; i < nodeIndices.length; i++) {
           node = nodes[nodeIndices[i]];
-          if (node.isOverlappingWith(pointerObj) === true) {
+          if (node != null && typeof node !== 'undefined' && node.isOverlappingWith(pointerObj) === true) {
             if (node.getTitle() !== undefined) {
               overlappingNodes.push(nodeIndices[i]);
             }
@@ -54803,7 +54840,7 @@ var InteractionHandler = function () {
         var overlappingEdges = [];
         for (var _i = 0; _i < edgeIndices.length; _i++) {
           edge = edges[edgeIndices[_i]];
-          if (edge.isOverlappingWith(pointerObj) === true) {
+          if (edge != null && typeof edge !== 'undefined' && edge.isOverlappingWith(pointerObj) === true) {
             if (edge.connected === true && edge.getTitle() !== undefined) {
               overlappingEdges.push(edgeIndices[_i]);
             }
